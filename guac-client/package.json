@@ -1,0 +1,27 @@
+{
+    "name": "guac-client",
+    "version": "0.1.0",
+    "private": true,
+    "dependencies": {
+        "bootstrap": "^4.1.1",
+        "react": "^16.3.2",
+        "react-dom": "^16.3.2",
+        "react-scripts": "1.1.4",
+        "reactstrap": "^6.0.1"
+    },
+    "main": "src/guac.js",
+    "scripts": {
+        "start": "react-scripts start",
+        "build": "react-scripts build",
+        "test": "react-scripts test --env=jsdom",
+        "eject": "react-scripts eject",
+        "electron": "electron .",
+        "dev": "nf start",
+        "electron-dev": "ELECTRON_START_URL=http://localhost:3000 electron ."
+    },
+    "homepage": "./",
+    "devDependencies": {
+        "electron": "^2.0.0",
+        "foreman": "^2.0.0"
+    }
+}
