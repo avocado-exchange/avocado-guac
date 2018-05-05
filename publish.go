@@ -249,6 +249,45 @@ func (r *rsaPublicKey) Unsign(message []byte, sig []byte) error {
 	return rsa.VerifyPKCS1v15(r.PublicKey, crypto.SHA256, d, sig)
 }
 
+// ffmpeg util functions
+
+func chunkFile(filename string, chunkPath string, segmentLength string) ([]os.FileInfo, error) {
+	cmd := exec.Command("ffmpeg", "-i", filename, "-f", "segment",
+		"-segment_time", segmentLength, "-c", "copy", chunkPath+"chunk%03d.mp3")
+	err := cmd.Run()
+	if err != nil {
+		fmt.Println("Error while executing ffmpeg ", err)
+		return nil, err
+	}
+
+	files, err := ioutil.ReadDir(chunkPath)
+	if err != nil {
+		return nil, err
+	}
+
+	return files, err
+}
+
+func unChunkFile(outputPath string, chunkPath string) error {
+	files, err := ioutil.ReadDir(chunkPath)
+	if err != nil {
+		return err
+	}
+
+	ffmpegInput := "concat:"
+	for _, file := range files[:len(files)-1] {
+		ffmpegInput += chunkPath + file.Name() + "|"
+	}
+
+	ffmpegInput += chunkPath + files[len(files)-1].Name()
+	fmt.Println(ffmpegInput)
+
+	cmd := exec.Command("ffmpeg", "-i", ffmpegInput, "-acodec",
+		"copy", outputPath)
+
+	return cmd.Run()
+}
+
 // call with publish.go American_Idiot.mp3
 func main() {
 
@@ -271,17 +310,8 @@ func main() {
 	RemoveContents(decChunkDir)
 
 	fmt.Println("Using file " + filename)
-	cmd := exec.Command("ffmpeg", "-i", filename, "-f", "segment",
-		"-segment_time", segmentLength, "-c", "copy", chunkPath+"chunk%03d.mp3")
-	err := cmd.Run()
-	if err != nil {
-		fmt.Println("Error while executing ffmpeg ", err)
-	}
 
-	files, err := ioutil.ReadDir("chunks")
-	if err != nil {
-		panic(err)
-	}
+	files, err := chunkFile(filename, chunkPath, segmentLength)
 
 	signer, err := loadPrivateKey("test0.pem")
 	if err != nil || signer == nil {
@@ -334,17 +364,20 @@ func main() {
 
 		*/
 
-		/* test decrypting
-		   err, plaintext := DecryptFile(key, encChunkPath)
+		err, plaintext := DecryptFile(key, encChunkPath)
 
-		   fmt.Println(err, len(plaintext))
+		fmt.Println(err, len(plaintext))
 
-		   outFilePath := decChunkDir + file.Name()
-		   ioutil.WriteFile(outFilePath, plaintext, 0644)
-		*/
+		outFilePath := decChunkDir + file.Name()
+		ioutil.WriteFile(outFilePath, plaintext, 0644)
 
 	}
 
+	err = unChunkFile("decChopSuey.mp3", decChunkDir)
+
+	if err != nil {
+		panic(err)
+	}
 	RemoveContents(chunkPath)
 
 }
