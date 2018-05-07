@@ -20,6 +20,7 @@ import (
 	"path/filepath"
 
 	"github.com/dhowden/tag"
+	mp3 "github.com/hajimehoshi/go-mp3"
 )
 
 // https://stackoverflow.com/questions/33450980/golang-remove-all-contents-of-a-directory
@@ -290,20 +291,27 @@ func unChunkFile(outputPath string, chunkPath string) error {
 	return cmd.Run()
 }
 
-func getMetadata(filepath string) (tag.Metadata, error) {
+func getMetadata(filepath string) (tag.Metadata, int64, error) {
 	mp3File, err := os.Open(filepath)
 	defer mp3File.Close()
 
 	if err != nil {
-		return nil, err
+		return nil, -1, err
 	}
+
+	d, err := mp3.NewDecoder(mp3File)
+	if err != nil {
+		return nil, -1, err
+	}
+
+	defer d.Close()
 
 	meta, err := tag.ReadFrom(mp3File)
 	if err != nil {
-		return nil, err
+		return nil, -1, err
 	}
 
-	return meta, nil
+	return meta, d.Length(), nil
 }
 
 // call with publish.go American_Idiot.mp3
@@ -318,7 +326,7 @@ func main() {
 	encChunkDir := "encChunks/"
 	decChunkDir := "decChunks/"
 
-	meta, err := getMetadata(filename)
+	meta, songLen, err := getMetadata(filename)
 
 	if err == nil {
 		fmt.Println("Parsed metadata for: " + meta.Title())
