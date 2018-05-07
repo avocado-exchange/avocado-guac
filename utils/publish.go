@@ -18,11 +18,14 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 
 	"github.com/dhowden/tag"
 	contract "github.com/dkaps125/go-contract/contract"
 	mp3 "github.com/hajimehoshi/go-mp3"
 )
+
+const catalogAddress string = "0x8f0483125fcb9aaaefa9209d8e9d7b9c8b9fb90f"
 
 // https://stackoverflow.com/questions/33450980/golang-remove-all-contents-of-a-directory
 func RemoveContents(dir string) error {
@@ -307,6 +310,8 @@ func getMetadata(filepath string) (tag.Metadata, int64, error) {
 
 	defer d.Close()
 
+	mp3File.Seek(0, 0)
+
 	meta, err := tag.ReadFrom(mp3File)
 	if err != nil {
 		return nil, -1, err
@@ -315,22 +320,34 @@ func getMetadata(filepath string) (tag.Metadata, int64, error) {
 	return meta, d.Length(), nil
 }
 
-func loadCatalogContract() {
+func loadCatalogContract() (contract.Contract, error) {
 	var c contract.Contract
-	c, _ = c.Init("idk", "addr", "http://localhost:9545")
+	c, err := c.Init("contracts/Catalog.json", catalogAddress, "http://localhost:9545")
+
+	return c, err
 }
 
-func encryptAndChunk(filename) {
+func encryptAndChunk(filename string, cost uint32, myAccount string) {
+
 	segmentLength := "15"
 
 	chunkPath := "chunks/"
 	encChunkDir := "encChunks/"
 	decChunkDir := "decChunks/"
 
+	fmt.Println("Loading contract...")
+	c, err := loadCatalogContract()
+
+	if err != nil {
+		panic(err)
+	}
+
 	meta, songLen, err := getMetadata(filename)
 
 	if err == nil {
 		fmt.Println("Parsed metadata for: " + meta.Title())
+	} else {
+		panic(err)
 	}
 
 	_ = os.Mkdir(chunkPath, os.ModePerm)
@@ -348,7 +365,8 @@ func encryptAndChunk(filename) {
 
 	signer, err := loadPrivateKey("test0.pem")
 	if err != nil || signer == nil {
-		fmt.Errorf("signer is damaged: %v", err)
+		_ = fmt.Errorf("signer is damaged: %v", err)
+		panic(err)
 	}
 
 	fmt.Println(signer)
@@ -365,6 +383,10 @@ func encryptAndChunk(filename) {
 		err, key := EncryptFile(inputpath, encChunkPath)
 		ioutil.WriteFile(encChunkKeyPath, key, 0440)
 
+		if err != nil {
+			panic(err)
+		}
+
 		ciphertext, err := ioutil.ReadFile(encChunkPath)
 
 		//fmt.Println("size of ciphertext ", len(ciphertext))
@@ -376,7 +398,8 @@ func encryptAndChunk(filename) {
 		signed, err := signer.Sign(ciphertext)
 
 		if err != nil {
-			fmt.Errorf("could not sign request: %v", err)
+			_ = fmt.Errorf("could not sign request")
+			panic(err)
 		}
 
 		//sig := base64.StdEncoding.EncodeToString(signed)
@@ -419,22 +442,41 @@ func encryptAndChunk(filename) {
 
 	*/
 	RemoveContents(chunkPath)
+
+	/* List song on the blockchain */
+	// TODO: parse filename properly
+	fmt.Printf("Calling Catalog.listSong with %s %d %d %s %s %s %s %s %d %d %d\n",
+		myAccount, cost, 0, filename, meta.Title(), meta.Artist(), meta.Album(), meta.Genre(), uint(meta.Year()),
+		uint32(songLen), uint32(len(files)))
+
+	s, err := c.Transact("listSong", myAccount, cost, 0, filename,
+		meta.Title(), meta.Artist(), meta.Album(), meta.Genre(), uint(meta.Year()),
+		uint(songLen), uint(len(files)))
+
+	fmt.Println(s)
+	if err != nil {
+		panic(err)
+	}
 }
 
-// call with publish.go publish chop_suey.mp3
+// call with
+// go run publish.go publish chop_suey.mp3 100 0x627306090abab3a6e1400e9345bc60c78a8bef57
 func main() {
-	if len(os.Args) < 3 {
+	if len(os.Args) < 5 {
 		panic("Not enough arguments")
 	}
 
 	switch arg := os.Args[1]; arg {
 	case "publish":
 		filename := os.Args[2]
-		encryptAndChunk(filename)
+		cost, err := strconv.Atoi(os.Args[3])
+		if err != nil {
+			panic(err)
+		}
+		myAddress := os.Args[4]
+		encryptAndChunk(filename, uint32(cost), myAddress)
 	default:
 		fmt.Println("Invalid argument: " + arg)
-	}
-
 	}
 
 }
