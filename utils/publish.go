@@ -20,6 +20,7 @@ import (
 	"path/filepath"
 
 	"github.com/dhowden/tag"
+	contract "github.com/dkaps125/go-contract/contract"
 	mp3 "github.com/hajimehoshi/go-mp3"
 )
 
@@ -314,14 +315,14 @@ func getMetadata(filepath string) (tag.Metadata, int64, error) {
 	return meta, d.Length(), nil
 }
 
-// call with publish.go American_Idiot.mp3
-func main() {
+func loadCatalogContract() {
+	var c contract.Contract
+	c, _ = c.Init("idk", "addr", "http://localhost:9545")
+}
 
+func encryptAndChunk(filename) {
 	segmentLength := "15"
-	if len(os.Args) < 2 {
-		panic("Not enough arguments")
-	}
-	filename := os.Args[1]
+
 	chunkPath := "chunks/"
 	encChunkDir := "encChunks/"
 	decChunkDir := "decChunks/"
@@ -396,15 +397,18 @@ func main() {
 
 		*/
 
+		/* decryption example
 		err, plaintext := DecryptFile(key, encChunkPath)
 
 		fmt.Println(err, len(plaintext))
 
 		outFilePath := decChunkDir + file.Name()
 		ioutil.WriteFile(outFilePath, plaintext, 0644)
+		*/
 
 	}
 
+	/* post-decryption unchunk example
 	processedFileName := "processed_" + filename
 	os.Remove(processedFileName)
 	err = unChunkFile(processedFileName, decChunkDir)
@@ -412,6 +416,25 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+
+	*/
 	RemoveContents(chunkPath)
+}
+
+// call with publish.go publish chop_suey.mp3
+func main() {
+	if len(os.Args) < 3 {
+		panic("Not enough arguments")
+	}
+
+	switch arg := os.Args[1]; arg {
+	case "publish":
+		filename := os.Args[2]
+		encryptAndChunk(filename)
+	default:
+		fmt.Println("Invalid argument: " + arg)
+	}
+
+	}
 
 }

@@ -1,6 +1,7 @@
 import React, { Component } from 'react';
 import logo from './logo.svg';
 import './App.css';
+import Web3 from 'web3'
 
 import {
   Collapse,
@@ -125,6 +126,14 @@ class SongList extends Component {
 }
 
 class App extends Component {
+  constructor(props) {
+    super(props);
+    this.web3Provider = new Web3.providers.HttpProvider('http://localhost:9545');
+    this.web3 = new Web3(this.web3Provider);
+  }
+
+  
+
   render() {
     return (
       <div className="App">
