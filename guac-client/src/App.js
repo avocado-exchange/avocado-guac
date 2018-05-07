@@ -1,5 +1,4 @@
 import React, { Component } from 'react';
-import logo from './logo.svg';
 import './App.css';
 import Web3 from 'web3'
 
@@ -34,8 +33,8 @@ class GuacNav extends Component {
   }
   render() {
     return (
-      <Navbar light expand="md" className="guacNav">
-        <NavbarBrand className="guacNavItem" href="/">Avocado</NavbarBrand>
+      <Navbar dark expand="md" className="guacNav">
+        <NavbarBrand className="guacNavItem" href="/">Avocado <span role="img" aria-label="">🥑</span></NavbarBrand>
         <NavbarToggler onClick={this.toggle} />
         <Collapse isOpen={this.state.isOpen} navbar>
           <Nav className="ml-auto" navbar>
@@ -93,7 +92,7 @@ class SongList extends Component {
             <td>System of a Down</td>
             <td>Toxicity</td>
             <td>0.00250 Eth </td>
-            <td>Buy now 🛒</td>
+            <td>Buy now <span role="img" aria-label="add to cart">🛒</span></td>
           </tr>
           <tr>
             <th scope="row">2</th>
@@ -101,7 +100,7 @@ class SongList extends Component {
             <td>System of a Down</td>
             <td>Toxicity</td>
             <td>0.00243 Eth </td>
-            <td>Buy now 🛒</td>
+            <td>Buy now <span role="img" aria-label="add to cart">🛒</span></td>
           </tr>
           <tr>
             <th scope="row">3</th>
@@ -109,7 +108,7 @@ class SongList extends Component {
             <td>System of a Down</td>
             <td>Toxicity</td>
             <td>0.00250 Eth </td>
-            <td>Buy now 🛒</td>
+            <td>Buy now <span role="img" aria-label="add to cart">🛒</span></td>
           </tr>
           <tr>
             <th scope="row">4</th>
@@ -117,7 +116,7 @@ class SongList extends Component {
             <td>System of a Down</td>
             <td>System of a Down</td>
             <td>0.00266 Eth </td>
-            <td>Buy now 🛒</td>
+            <td>Buy now <span role="img" aria-label="add to cart">🛒</span></td>
           </tr>
         </tbody>
       </Table>
@@ -131,8 +130,6 @@ class App extends Component {
     this.web3Provider = new Web3.providers.HttpProvider('http://localhost:9545');
     this.web3 = new Web3(this.web3Provider);
   }
-
-  
 
   render() {
     return (
