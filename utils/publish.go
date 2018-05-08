@@ -11,21 +11,31 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/pem"
+    "math/big"
 	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
+    "net/http"
+    "encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
+    "bufio"
+    "strings"
 
 	"github.com/dhowden/tag"
-	contract "github.com/dkaps125/go-contract/contract"
+	"github.com/dkaps125/go-contract/contract"
 	mp3 "github.com/hajimehoshi/go-mp3"
 )
 
 const catalogAddress string = "0x8f0483125fcb9aaaefa9209d8e9d7b9c8b9fb90f"
+var c contract.Contract
+
+type FileData struct {
+    Chunks map[string][]byte
+}
 
 // https://stackoverflow.com/questions/33450980/golang-remove-all-contents-of-a-directory
 func RemoveContents(dir string) error {
@@ -327,20 +337,17 @@ func loadCatalogContract() (contract.Contract, error) {
 	return c, err
 }
 
-func encryptAndChunk(filename string, cost uint32, myAccount string) {
+func encryptAndChunk(filename string, cost uint32, myAccount string) ([][32]byte, *FileData) {
+    var hashes [][32]byte
+    var chunkStruct FileData
+
+    chunkStruct.Chunks = make(map[string][]byte)
 
 	segmentLength := "15"
 
 	chunkPath := "chunks/"
 	encChunkDir := "encChunks/"
 	decChunkDir := "decChunks/"
-
-	fmt.Println("Loading contract...")
-	c, err := loadCatalogContract()
-
-	if err != nil {
-		panic(err)
-	}
 
 	meta, songLen, err := getMetadata(filename)
 
@@ -388,6 +395,9 @@ func encryptAndChunk(filename string, cost uint32, myAccount string) {
 		}
 
 		ciphertext, err := ioutil.ReadFile(encChunkPath)
+        cHash := sha256.Sum256(ciphertext)
+        hashes = append(hashes, cHash)
+        chunkStruct.Chunks[string(cHash[:])] = ciphertext
 
 		//fmt.Println("size of ciphertext ", len(ciphertext))
 
@@ -468,30 +478,119 @@ func encryptAndChunk(filename string, cost uint32, myAccount string) {
 		filenameBytes, title, artist, album,
 		genre, uint32(meta.Year()), uint32(songLen), uint32(len(files)))
 
+
 	fmt.Println(s)
 	if err != nil {
 		panic(err)
 	}
+
+    return hashes, &chunkStruct
+}
+
+func publishChunks(hashes [][32]byte, myAccount string, filename string, chData *FileData) (func([]interface{}) error) {
+    return func (data []interface{}) error {
+        songNum := data[1].(uint32)
+        fmt.Printf("Publishing song %d\n", songNum)
+        c.Transact("publishChunks", myAccount, songNum, hashes)
+        eventNum, _ := c.RegisterEventListener("RandomnessReady")
+        c.ListenOnce(eventNum, "RandomnessReady", revealChunks(myAccount, songNum, filename, chData))
+
+        return nil
+    }
+}
+
+func bytesToHostname(bytes [][32]byte) []string {
+    var res []string
+
+    for _, v := range bytes {
+        res = append(res, string(v[:]))
+    }
+
+    return res
+}
+
+func revealChunks(myAccount string, songNum uint32, filename string, chData *FileData) (func([]interface{}) error) {
+    return func (data []interface{}) error {
+        chunkInd1 := data[0].(*big.Int)
+        chunkInd2 := data[1].(*big.Int)
+        csAddresses := data[2].([][32]byte)
+        key1, _ := ioutil.ReadFile("chunk" + fmt.Sprintf("|%03d|", chunkInd1) + "-" + filename + ".key")
+        key2, _ := ioutil.ReadFile("chunk" + fmt.Sprintf("|%03d|", chunkInd2) + "-" + filename + ".key")
+
+        var k1 [32]byte
+        var k2 [32]byte
+
+        copy(k1[:], key1)
+        copy(k2[:], key2)
+
+        c.Transact("revealChunks", myAccount, k1, k2, songNum)
+
+        sendChunks(bytesToHostname(csAddresses), chData)
+        return nil
+    }
+}
+
+func sendChunks(hostnames []string, chData *FileData) {
+    jsonStr, _ := json.Marshal(chData)
+    req, err := http.NewRequest("PUT", "http://localhost:5437", bytes.NewBuffer(jsonStr))
+
+    client := &http.Client{}
+    resp, err := client.Do(req)
+
+    if err != nil {
+        panic(err)
+    }
+
+    defer resp.Body.Close()
+
+    //body, _ := ioutil.ReadAll(resp.Body)
+}
+
+func serveKeys() {
+
 }
 
 // call with
 // go run publish.go publish chop_suey.mp3 100 0x627306090abab3a6e1400e9345bc60c78a8bef57
 func main() {
-	if len(os.Args) < 5 {
-		panic("Not enough arguments")
+    var err error
+
+	fmt.Println("Loading contract...")
+	c, err = loadCatalogContract()
+
+    if err != nil {
+		panic(err)
 	}
 
-	switch arg := os.Args[1]; arg {
-	case "publish":
-		filename := os.Args[2]
-		cost, err := strconv.Atoi(os.Args[3])
-		if err != nil {
-			panic(err)
-		}
-		myAddress := os.Args[4]
-		encryptAndChunk(filename, uint32(cost), myAddress)
-	default:
-		fmt.Println("Invalid argument: " + arg)
-	}
+    //go serveKeys()
 
+    reader := bufio.NewReader(os.Stdin)
+
+    for {
+        fmt.Print("# ")
+
+        text, _ := reader.ReadString('\n')
+        text = strings.Trim(text, " \n")
+        toks := strings.Split(text, " ")
+
+	    if len(toks) < 4 {
+		    panic("Not enough arguments")
+	    }
+
+	    switch arg := toks[0]; arg {
+	    case "publish":
+		    filename := toks[1]
+		    cost, err := strconv.Atoi(toks[2])
+		    if err != nil {
+			    panic(err)
+		    }
+		    myAddress := toks[3]
+            hashes, chunkData := encryptAndChunk(filename, uint32(cost), myAddress)
+            eventNum, _ := c.RegisterEventListener("SongListed")
+            c.ListenOnce(eventNum, "SongListed", publishChunks(hashes, myAddress, filename, chunkData))
+
+	    default:
+		    fmt.Println("Invalid argument: " + arg)
+	    }
+    }
 }
