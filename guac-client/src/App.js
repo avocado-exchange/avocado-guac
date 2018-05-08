@@ -1,6 +1,7 @@
 import React, { Component } from 'react';
 import './App.css';
 import Web3 from 'web3'
+import CatalogABI from './contracts/Catalog.json'
 
 import {
   Collapse,
@@ -129,6 +130,25 @@ class App extends Component {
     super(props);
     this.web3Provider = new Web3.providers.HttpProvider('http://localhost:9545');
     this.web3 = new Web3(this.web3Provider);
+    var web3 = this.web3;
+    //const catalogABIParsed = JSON.parse(CatalogABI)
+
+    const myAddr = {from: '0xf17f52151ebef6c7334fad080c5704d77216b732'};
+
+    var catalog = new web3.eth.Contract(CatalogABI.abi,
+      '0x8f0483125fcb9aaaefa9209d8e9d7b9c8b9fb90f', {
+        from: '0xf17f52151ebef6c7334fad080c5704d77216b732'
+      }
+    );
+
+    console.log(catalog);
+    catalog.methods.nextSongIndexToAssign().call(myAddr)
+    .then(console.log)
+
+    /*
+    catalog.methods.getListingMetadata(0).call(myAddr)
+    .then(console.log)
+    */
 
   }
 
