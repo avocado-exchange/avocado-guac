@@ -445,13 +445,28 @@ func encryptAndChunk(filename string, cost uint32, myAccount string) {
 
 	/* List song on the blockchain */
 	// TODO: parse filename properly
-	fmt.Printf("Calling Catalog.listSong with %s %d %d %s %s %s %s %s %d %d %d\n",
-		myAccount, cost, 0, filename, meta.Title(), meta.Artist(), meta.Album(), meta.Genre(), uint(meta.Year()),
-		uint32(songLen), uint32(len(files)))
 
-	s, err := c.Transact("listSong", myAccount, cost, 0, filename,
-		meta.Title(), meta.Artist(), meta.Album(), meta.Genre(), uint(meta.Year()),
-		uint(songLen), uint(len(files)))
+	var (
+		filenameBytes [32]byte
+		title         [32]byte
+		artist        [32]byte
+		album         [32]byte
+		genre         [32]byte
+		filetype      uint32
+	)
+
+	filetype = 0
+	copy(filenameBytes[:], filename)
+	copy(title[:], meta.Title())
+	copy(artist[:], meta.Artist())
+	copy(album[:], meta.Album())
+	copy(genre[:], meta.Genre())
+
+	// this is obnoxious
+
+	s, err := c.Transact("listSong", myAccount, cost, filetype,
+		filenameBytes, title, artist, album,
+		genre, uint32(meta.Year()), uint32(songLen), uint32(len(files)))
 
 	fmt.Println(s)
 	if err != nil {

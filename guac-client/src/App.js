@@ -129,6 +129,7 @@ class App extends Component {
     super(props);
     this.web3Provider = new Web3.providers.HttpProvider('http://localhost:9545');
     this.web3 = new Web3(this.web3Provider);
+
   }
 
   render() {
