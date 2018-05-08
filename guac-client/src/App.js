@@ -16,8 +16,13 @@ import {
   DropdownMenu,
   DropdownItem,
   Table,
-  Button
- } from 'reactstrap';
+  Button,
+  ListGroup,
+  ListGroupItem,
+  Container,
+  Row,
+  Col
+} from 'reactstrap';
 
 class GuacNav extends Component {
   constructor(props) {
@@ -90,16 +95,16 @@ class SongList extends Component {
         </thead>
         <tbody>
           {
-          this.props.songs.map((song, i) => {
-            return <tr key={i}>
-              <th scope="row">{i+1}</th>
-              <th>{song.title}</th>
-              <th>{song.artist}</th>
-              <th>{song.album}</th>
-              <td>? Eth </td>
-              <td>Buy now <span role="img" aria-label="add to cart">🛒</span></td>
-            </tr>
-          })
+            this.props.songs.map((song, i) => {
+              return <tr key={i}>
+                <th scope="row">{i+1}</th>
+                <th>{song.title}</th>
+                <th>{song.artist}</th>
+                <th>{song.album}</th>
+                <td>? Eth </td>
+                <td>Buy now <span role="img" aria-label="add to cart">🛒</span></td>
+              </tr>
+            })
           }
         </tbody>
       </Table>
@@ -122,6 +127,10 @@ class App extends Component {
         from: '0xf17f52151ebef6c7334fad080c5704d77216b732'
       }
     );
+  }
+
+  componentDidMount() {
+    this.updateListings();
   }
 
   updateListings = () => {
@@ -157,14 +166,20 @@ class App extends Component {
     return (
       <div className="App">
         <GuacNav />
-        <br />
-        <h3>Latest listings</h3>
-        <SongList songs={this.state.listings}/>
-        <br />
-        <Button outline color="secondary" onClick={this.updateListings}>Update listings</Button>{' '}
+        <Row>
+          <Col />
+          <div className="col-md-11">
+            <br />
+            <h3>Latest listings</h3>
+            <SongList songs={this.state.listings}/>
+            <br />
+            <Button outline color="secondary" onClick={this.updateListings}>Update listings</Button>{' '}
+          </div>
+          <Col />
+        </Row>
       </div>
-    );
-  }
+  );
+}
 }
 
 export default App;
