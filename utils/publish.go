@@ -260,7 +260,7 @@ func (r *rsaPublicKey) Unsign(message []byte, sig []byte) error {
 
 func chunkFile(filename string, chunkPath string, segmentLength string) ([]os.FileInfo, error) {
 	cmd := exec.Command("ffmpeg", "-i", filename, "-f", "segment",
-		"-segment_time", segmentLength, "-c", "copy", chunkPath+"chunk%03d.mp3")
+		"-segment_time", segmentLength, "-c", "copy", chunkPath+"chunk%03d-"+filename)
 	err := cmd.Run()
 	if err != nil {
 		fmt.Println("Error while executing ffmpeg ", err)

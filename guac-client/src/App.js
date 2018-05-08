@@ -15,7 +15,8 @@ import {
   DropdownToggle,
   DropdownMenu,
   DropdownItem,
-  Table
+  Table,
+  Button
  } from 'reactstrap';
 
 class GuacNav extends Component {
@@ -73,6 +74,7 @@ class GuacNav extends Component {
 }
 
 class SongList extends Component {
+
   render() {
     return (
       <Table>
@@ -87,38 +89,18 @@ class SongList extends Component {
           </tr>
         </thead>
         <tbody>
-          <tr>
-            <th scope="row">1</th>
-            <td>Chop Suey</td>
-            <td>System of a Down</td>
-            <td>Toxicity</td>
-            <td>0.00250 Eth </td>
-            <td>Buy now <span role="img" aria-label="add to cart">🛒</span></td>
-          </tr>
-          <tr>
-            <th scope="row">2</th>
-            <td>Toxicity</td>
-            <td>System of a Down</td>
-            <td>Toxicity</td>
-            <td>0.00243 Eth </td>
-            <td>Buy now <span role="img" aria-label="add to cart">🛒</span></td>
-          </tr>
-          <tr>
-            <th scope="row">3</th>
-            <td>BYOB</td>
-            <td>System of a Down</td>
-            <td>Toxicity</td>
-            <td>0.00250 Eth </td>
-            <td>Buy now <span role="img" aria-label="add to cart">🛒</span></td>
-          </tr>
-          <tr>
-            <th scope="row">4</th>
-            <td>Sugar</td>
-            <td>System of a Down</td>
-            <td>System of a Down</td>
-            <td>0.00266 Eth </td>
-            <td>Buy now <span role="img" aria-label="add to cart">🛒</span></td>
-          </tr>
+          {
+          this.props.songs.map((song, i) => {
+            return <tr key={i}>
+              <th scope="row">{i+1}</th>
+              <th>{song.title}</th>
+              <th>{song.artist}</th>
+              <th>{song.album}</th>
+              <td>? Eth </td>
+              <td>Buy now <span role="img" aria-label="add to cart">🛒</span></td>
+            </tr>
+          })
+          }
         </tbody>
       </Table>
     )
@@ -128,28 +110,47 @@ class SongList extends Component {
 class App extends Component {
   constructor(props) {
     super(props);
+    this.state = {
+      listings: []
+    };
     this.web3Provider = new Web3.providers.HttpProvider('http://localhost:9545');
     this.web3 = new Web3(this.web3Provider);
     var web3 = this.web3;
-    //const catalogABIParsed = JSON.parse(CatalogABI)
 
-    const myAddr = {from: '0xf17f52151ebef6c7334fad080c5704d77216b732'};
-
-    var catalog = new web3.eth.Contract(CatalogABI.abi,
+    this.catalog = new web3.eth.Contract(CatalogABI.abi,
       '0x8f0483125fcb9aaaefa9209d8e9d7b9c8b9fb90f', {
         from: '0xf17f52151ebef6c7334fad080c5704d77216b732'
       }
     );
+  }
+
+  updateListings = () => {
+    const myAddr = {from: '0xf17f52151ebef6c7334fad080c5704d77216b732'};
+    const catalog = this.catalog;
 
     console.log(catalog);
     catalog.methods.nextSongIndexToAssign().call(myAddr)
-    .then(console.log)
-
-    /*
-    catalog.methods.getListingMetadata(0).call(myAddr)
-    .then(console.log)
-    */
-
+    .then(lastSongIndex => {
+      console.log("last song: "+ lastSongIndex-1);
+      var promises = [];
+      for (var i = 0; i < lastSongIndex; i++) {
+        promises.push(catalog.methods.getListingMetadata(i).call(myAddr))
+      }
+      return Promise.all(promises);
+    }).then(lastSongs => {
+      const listings = lastSongs.map(rawListing => {
+        return {
+          filename: this.web3.utils.toAscii(rawListing[0]),
+          title: this.web3.utils.toAscii(rawListing[1]),
+          album: this.web3.utils.toAscii(rawListing[2]),
+          artist: this.web3.utils.toAscii(rawListing[3]),
+          genre: this.web3.utils.toAscii(rawListing[4]),
+          year: rawListing[5],
+          length: rawListing[6],
+        }
+      });
+      this.setState({listings});
+    })
   }
 
   render() {
@@ -157,8 +158,10 @@ class App extends Component {
       <div className="App">
         <GuacNav />
         <br />
-        <h3>New Uploads</h3>
-        <SongList />
+        <h3>Latest listings</h3>
+        <SongList songs={this.state.listings}/>
+        <br />
+        <Button outline color="secondary" onClick={this.updateListings}>Update listings</Button>{' '}
       </div>
     );
   }
