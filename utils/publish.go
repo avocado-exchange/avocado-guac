@@ -322,7 +322,7 @@ func getMetadata(filepath string) (tag.Metadata, int64, error) {
 
 func loadCatalogContract() (contract.Contract, error) {
 	var c contract.Contract
-	c, err := c.Init("contracts/Catalog.json", catalogAddress, "http://localhost:9545")
+	c, err := c.Init("../guac-client/src/contracts/Catalog.json", catalogAddress, "http://localhost:9545")
 
 	return c, err
 }
