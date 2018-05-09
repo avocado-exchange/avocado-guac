@@ -39,6 +39,8 @@ type FileData struct {
 	Chunks map[string][]byte
 }
 
+var keyStore map[string][]byte
+
 // https://stackoverflow.com/questions/33450980/golang-remove-all-contents-of-a-directory
 func RemoveContents(dir string) error {
 	d, err := os.Open(dir)
@@ -406,6 +408,8 @@ func encryptAndChunk(filename string, cost uint32, myAccount string) ([][32]byte
 		hashes = append(hashes, cHash)
 		chunkStruct.Chunks[hex.EncodeToString(cHash[:])] = ciphertext
 
+        keyStore[hex.EncodeToString(cHash[:])] = key
+
 		//fmt.Println("size of ciphertext ", len(ciphertext))
 
 		if err != nil {
@@ -506,7 +510,7 @@ func publishChunks(hashes [][32]byte, myAccount string, filename string, chData 
 			panic(err)
 		}
 		c.Transact("publishChunks", myAccount, songNum, hashes, host)
-		go c.Listen(eventNum, "RandomnessReady", revealChunks(myAccount, songNum, filename, chData))
+		c.ListenOnce(eventNum, "RandomnessReady", revealChunks(myAccount, songNum, filename, chData))
 
 		return nil
 	}
@@ -589,7 +593,7 @@ func getChunk(hostnames []string, chunkHash [32]byte) []byte {
 }
 
 func getChunks(hostnames []string, chunkHashes [][32]byte) [][]byte {
-	res := make([][]byte, 1)
+	var res [][]byte
 
 	for _, v := range chunkHashes {
 		res = append(res, getChunk(hostnames, v))
@@ -610,7 +614,7 @@ func preview(song uint32, outputFilePath string) {
 	chunk1 := getChunk(bytesToHostname(csAddresses), chunk1Hash)
 	//chunk2 := getChunk(bytesToHostname(csAddresses), chunk2Hash)
 
-	fmt.Printf("%v\n", chunk1)
+	//fmt.Printf("%v\n", chunk1)
 	//fmt.Printf("%v\n", chunk2)
 
 	err, plaintext := Decrypt(chunk1Key[:], chunk1)
@@ -628,55 +632,91 @@ func purchase(song uint32, myAccount string, value int64, savePath string) {
 
 func handlePurchase(songNum uint32, savePath string) func([]interface{}) error {
 	return func(data []interface{}) error {
-		//sellerBytes := data[2].([32]byte)
-		//seller := string(sellerBytes[:])
+		sellerBytes := data[2].([32]byte)
+		seller := string(sellerBytes[:])
 		hashes := data[3].([][32]byte)
 		cs := data[4].([][32]byte)
 
-		//keys := getKeys(seller, hashes)
+		keys := getKeys(seller, hashes)
+
+        fmt.Printf("%v\n", keys)
 
 		chunks := getChunks(bytesToHostname(cs), hashes)
 
-		fmt.Printf("%v\n", chunks)
+		//fmt.Printf("%v\n", chunks)
 
-		/*
-			decChunkDir := "decChunks/"
-			_ = os.Mkdir(decChunkDir, os.ModePerm)
-			RemoveContents(decChunkDir)
 
-			for i, chunk := range chunks {
-				err, plaintext := Decrypt(chunk, keys[i][:])
+		decChunkDir := "decChunks/"
+		_ = os.Mkdir(decChunkDir, os.ModePerm)
+        RemoveContents(decChunkDir)
 
-				fmt.Println(err, len(plaintext))
+        for i, chunk := range chunks {
+            err, plaintext := Decrypt(keys[i][:], chunk)
 
-				ioutil.WriteFile(decChunkDir+"_chunk"+i+".mp3", plaintext, 0644)
-			}
+            fmt.Println(err, len(plaintext))
 
-			/* post-decryption unchunk example
+            ioutil.WriteFile(decChunkDir+"_chunk"+ fmt.Sprintf("%d", i) +".mp3", plaintext, 0644)
+        }
 
-			err = unChunkFile(savePath, decChunkDir)
+        err := unChunkFile(savePath, decChunkDir)
 
-			if err != nil {
-				panic(err)
-			}
-		*/
+        if err != nil {
+            panic(err)
+        }
+
 
 		return nil
 	}
 }
 
 func getKeys(hostname string, hashes [][32]byte) [][32]byte {
-	return make([][32]byte, 1)
+    var res [][32]byte
+
+    for _, v := range hashes {
+	    host := strings.Trim(hostname, " \n\000")
+	    url := host + "/?hash=" + hex.EncodeToString(v[:])
+
+	    req, err := http.NewRequest("GET", url, bytes.NewBuffer([]byte{}))
+
+	    client := &http.Client{}
+	    resp, err := client.Do(req)
+
+	    if err != nil {
+		    panic(err)
+	    }
+
+	    defer resp.Body.Close()
+
+	    body, _ := ioutil.ReadAll(resp.Body)
+
+        var t [32]byte
+        copy(t[:], body)
+
+	    res = append(res, t)
+    }
+
+	return res
 }
 
 func serveKeys() {
+    http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+        switch r.Method {
+        case "GET":
+            w.Write(keyStore[r.URL.Query().Get("hash")])
+            break
+        default:
+            break
+        }
+    })
 
+    http.ListenAndServe(":6548", nil)
 }
 
 // call with
 // go run publish.go publish chop_suey.mp3 100 0x627306090abab3a6e1400e9345bc60c78a8bef57
 func main() {
 	var err error
+    keyStore = make(map[string][]byte)
 
 	fmt.Println("Loading contract...")
 	c, err = loadCatalogContract()
@@ -705,7 +745,7 @@ func main() {
 		}
 
 		songNum, _ := strconv.Atoi(os.Args[2])
-		val, _ := strconv.Atoi(os.Args[4])
+		val, _ := strconv.Atoi(os.Args[5])
 		myAccount := os.Args[3]
 		outPath := os.Args[4]
 		purchase(uint32(songNum), myAccount, int64(val), outPath)
@@ -716,7 +756,7 @@ func main() {
 		panic("Invalid command - should be one of publish, preview, or purchase")
 	}
 
-	//go serveKeys()
+	go serveKeys()
 
 	reader := bufio.NewReader(os.Stdin)
 
@@ -724,7 +764,7 @@ func main() {
 		fmt.Print("# ")
 
 		text, _ := reader.ReadString('\n')
-		text = strings.Trim(text, " \n")
+		text = strings.Trim(text, " \n\000")
 		toks := strings.Split(text, " ")
 
 		if len(toks) < 3 {
