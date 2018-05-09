@@ -18,6 +18,7 @@ import (
 	"io/ioutil"
     "net/http"
     "encoding/json"
+    "encoding/hex"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -397,7 +398,7 @@ func encryptAndChunk(filename string, cost uint32, myAccount string) ([][32]byte
 		ciphertext, err := ioutil.ReadFile(encChunkPath)
         cHash := sha256.Sum256(ciphertext)
         hashes = append(hashes, cHash)
-        chunkStruct.Chunks[string(cHash[:])] = ciphertext
+        chunkStruct.Chunks[hex.EncodeToString(cHash[:])] = ciphertext
 
 		//fmt.Println("size of ciphertext ", len(ciphertext))
 
@@ -491,7 +492,11 @@ func publishChunks(hashes [][32]byte, myAccount string, filename string, chData 
     return func (data []interface{}) error {
         songNum := data[1].(uint32)
         fmt.Printf("Publishing song %d\n", songNum)
-        c.Transact("publishChunks", myAccount, songNum, hashes)
+
+        var host [32]byte
+        copy(host[:], "http://localhost:6548")
+
+        c.Transact("publishChunks", myAccount, songNum, hashes, host)
         eventNum, _ := c.RegisterEventListener("RandomnessReady")
         c.ListenOnce(eventNum, "RandomnessReady", revealChunks(myAccount, songNum, filename, chData))
 
@@ -514,8 +519,16 @@ func revealChunks(myAccount string, songNum uint32, filename string, chData *Fil
         chunkInd1 := data[0].(*big.Int)
         chunkInd2 := data[1].(*big.Int)
         csAddresses := data[2].([][32]byte)
-        key1, _ := ioutil.ReadFile("chunk" + fmt.Sprintf("|%03d|", chunkInd1) + "-" + filename + ".key")
-        key2, _ := ioutil.ReadFile("chunk" + fmt.Sprintf("|%03d|", chunkInd2) + "-" + filename + ".key")
+        key1, err1 := ioutil.ReadFile("encChunks/chunk" + fmt.Sprintf("%03d", chunkInd1) + "-" + filename + ".key")
+        key2, err2 := ioutil.ReadFile("encChunks/chunk" + fmt.Sprintf("%03d", chunkInd2) + "-" + filename + ".key")
+
+        if err1 != nil {
+            panic(err1)
+        }
+
+        if err2 != nil {
+            panic(err2)
+        }
 
         var k1 [32]byte
         var k2 [32]byte
@@ -532,7 +545,9 @@ func revealChunks(myAccount string, songNum uint32, filename string, chData *Fil
 
 func sendChunks(hostnames []string, chData *FileData) {
     jsonStr, _ := json.Marshal(chData)
-    req, err := http.NewRequest("PUT", "http://localhost:5437", bytes.NewBuffer(jsonStr))
+    host := strings.Trim(hostnames[0], " \n\000")
+    fmt.Printf("sending to %v\n", []byte(host))
+    req, err := http.NewRequest("PUT", host, bytes.NewBuffer(jsonStr))
 
     client := &http.Client{}
     resp, err := client.Do(req)
@@ -544,6 +559,47 @@ func sendChunks(hostnames []string, chData *FileData) {
     defer resp.Body.Close()
 
     //body, _ := ioutil.ReadAll(resp.Body)
+}
+
+func getChunk(hostnames []string, chunkHash [32]byte) []byte {
+    host := strings.Trim(hostnames[0], " \n\000")
+    url := host + "/?hash=" + hex.EncodeToString(chunkHash[:])
+
+    req, err := http.NewRequest("GET", url, bytes.NewBuffer([]byte{}))
+
+    client := &http.Client{}
+    resp, err := client.Do(req)
+
+    if err != nil {
+        panic(err)
+    }
+
+    defer resp.Body.Close()
+
+    body, _ := ioutil.ReadAll(resp.Body)
+    return body
+}
+
+func preview(song uint32) {
+    val, _ := c.Call("getPreview", song)
+    chunk1Hash := val[0].([32]byte)
+    chunk2Hash := val[1].([32]byte)
+    chunk1Key := val[2].([32]byte)
+    chunk2Key := val[3].([32]byte)
+    csAddresses := val[4].([][32]byte)
+
+    fmt.Printf("%v %v %v %v\n", chunk1Hash, chunk2Hash, chunk1Key, chunk2Key)
+    chunk1 := getChunk(bytesToHostname(csAddresses), chunk1Hash)
+    chunk2 := getChunk(bytesToHostname(csAddresses), chunk2Hash)
+
+    fmt.Printf("%v\n", chunk1)
+    fmt.Printf("%v\n", chunk2)
+
+    // TODO: GREG: decrypt the chunks here
+}
+
+func purchase(song uint32) {
+    
 }
 
 func serveKeys() {
@@ -562,6 +618,34 @@ func main() {
 		panic(err)
 	}
 
+    if len(os.Args) < 2 {
+        panic("Not enough args. Expected command type")
+    }
+
+    if os.Args[1] == "preview" {
+        if len(os.Args) < 3 {
+            panic("Missing song number")
+        }
+
+        songNum, _ := strconv.Atoi(os.Args[2])
+        preview(uint32(songNum))
+        return
+    }
+
+    if os.Args[1] == "purchase" {
+        if len(os.Args) < 3 {
+            panic("Missing song number")
+        }
+
+        songNum, _ := strconv.Atoi(os.Args[0])
+        purchase(uint32(songNum))
+        return
+    }
+
+    if os.Args[1] != "publish" {
+        panic("Invalid command - should be one of publish, preview, or purchase")
+    }
+
     //go serveKeys()
 
     reader := bufio.NewReader(os.Stdin)
@@ -573,24 +657,19 @@ func main() {
         text = strings.Trim(text, " \n")
         toks := strings.Split(text, " ")
 
-	    if len(toks) < 4 {
+	    if len(toks) < 3 {
 		    panic("Not enough arguments")
 	    }
 
-	    switch arg := toks[0]; arg {
-	    case "publish":
-		    filename := toks[1]
-		    cost, err := strconv.Atoi(toks[2])
-		    if err != nil {
-			    panic(err)
-		    }
-		    myAddress := toks[3]
-            hashes, chunkData := encryptAndChunk(filename, uint32(cost), myAddress)
-            eventNum, _ := c.RegisterEventListener("SongListed")
-            c.ListenOnce(eventNum, "SongListed", publishChunks(hashes, myAddress, filename, chunkData))
+		filename := toks[0]
+		cost, err := strconv.Atoi(toks[1])
+		if err != nil {
+		    panic(err)
+		}
+		myAddress := toks[2]
+        hashes, chunkData := encryptAndChunk(filename, uint32(cost), myAddress)
+        eventNum, _ := c.RegisterEventListener("SongListed")
+        c.ListenOnce(eventNum, "SongListed", publishChunks(hashes, myAddress, filename, chunkData))
 
-	    default:
-		    fmt.Println("Invalid argument: " + arg)
-	    }
     }
 }
