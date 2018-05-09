@@ -2,6 +2,7 @@ package main
 
 //import "github.com/giorgisio/goav/avformat"
 import (
+	"bufio"
 	"bytes"
 	"crypto"
 	"crypto/aes"
@@ -10,21 +11,20 @@ import (
 	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/x509"
+	"encoding/hex"
+	"encoding/json"
 	"encoding/pem"
-    "math/big"
 	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
-    "net/http"
-    "encoding/json"
-    "encoding/hex"
+	"math/big"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
-    "bufio"
-    "strings"
+	"strings"
 
 	"github.com/dhowden/tag"
 	"github.com/dkaps125/go-contract/contract"
@@ -32,10 +32,11 @@ import (
 )
 
 const catalogAddress string = "0x8f0483125fcb9aaaefa9209d8e9d7b9c8b9fb90f"
+
 var c contract.Contract
 
 type FileData struct {
-    Chunks map[string][]byte
+	Chunks map[string][]byte
 }
 
 // https://stackoverflow.com/questions/33450980/golang-remove-all-contents-of-a-directory
@@ -107,12 +108,17 @@ func EncryptFile(inputFilename string, outputFilename string) (error, []byte) {
 
 //https://gist.github.com/josephspurrier/12cc5ed76d2228a41ceb
 func DecryptFile(key []byte, inputpath string) (error, []byte) {
-
 	ciphertext, err := ioutil.ReadFile(inputpath)
 
 	if err != nil {
 		return err, nil
 	}
+
+	return Decrypt(key, ciphertext)
+}
+
+func Decrypt(key []byte, ciphertext []byte) (error, []byte) {
+
 	// Create the AES cipher
 	block, err := aes.NewCipher(key)
 	if err != nil {
@@ -339,10 +345,10 @@ func loadCatalogContract() (contract.Contract, error) {
 }
 
 func encryptAndChunk(filename string, cost uint32, myAccount string) ([][32]byte, *FileData) {
-    var hashes [][32]byte
-    var chunkStruct FileData
+	var hashes [][32]byte
+	var chunkStruct FileData
 
-    chunkStruct.Chunks = make(map[string][]byte)
+	chunkStruct.Chunks = make(map[string][]byte)
 
 	segmentLength := "15"
 
@@ -396,9 +402,9 @@ func encryptAndChunk(filename string, cost uint32, myAccount string) ([][32]byte
 		}
 
 		ciphertext, err := ioutil.ReadFile(encChunkPath)
-        cHash := sha256.Sum256(ciphertext)
-        hashes = append(hashes, cHash)
-        chunkStruct.Chunks[hex.EncodeToString(cHash[:])] = ciphertext
+		cHash := sha256.Sum256(ciphertext)
+		hashes = append(hashes, cHash)
+		chunkStruct.Chunks[hex.EncodeToString(cHash[:])] = ciphertext
 
 		//fmt.Println("size of ciphertext ", len(ciphertext))
 
@@ -479,160 +485,185 @@ func encryptAndChunk(filename string, cost uint32, myAccount string) ([][32]byte
 		filenameBytes, title, artist, album,
 		genre, uint32(meta.Year()), uint32(songLen), uint32(len(files)))
 
-
 	fmt.Println(s)
 	if err != nil {
 		panic(err)
 	}
 
-    return hashes, &chunkStruct
+	return hashes, &chunkStruct
 }
 
-func publishChunks(hashes [][32]byte, myAccount string, filename string, chData *FileData) (func([]interface{}) error) {
-    return func (data []interface{}) error {
-        songNum := data[1].(uint32)
-        fmt.Printf("Publishing song %d\n", songNum)
+func publishChunks(hashes [][32]byte, myAccount string, filename string, chData *FileData) func([]interface{}) error {
+	return func(data []interface{}) error {
+		songNum := data[1].(uint32)
+		fmt.Printf("Publishing song %d\n", songNum)
 
-        var host [32]byte
-        copy(host[:], "http://localhost:6548")
+		var host [32]byte
+		copy(host[:], "http://localhost:6548")
 
-        c.Transact("publishChunks", myAccount, songNum, hashes, host)
-        eventNum, _ := c.RegisterEventListener("RandomnessReady")
-        c.ListenOnce(eventNum, "RandomnessReady", revealChunks(myAccount, songNum, filename, chData))
+		c.Transact("publishChunks", myAccount, songNum, hashes, host)
+		eventNum, _ := c.RegisterEventListener("RandomnessReady")
+		c.ListenOnce(eventNum, "RandomnessReady", revealChunks(myAccount, songNum, filename, chData))
 
-        return nil
-    }
+		return nil
+	}
 }
 
 func bytesToHostname(bytes [][32]byte) []string {
-    var res []string
+	var res []string
 
-    for _, v := range bytes {
-        res = append(res, string(v[:]))
-    }
+	for _, v := range bytes {
+		res = append(res, string(v[:]))
+	}
 
-    return res
+	return res
 }
 
-func revealChunks(myAccount string, songNum uint32, filename string, chData *FileData) (func([]interface{}) error) {
-    return func (data []interface{}) error {
-        chunkInd1 := data[0].(*big.Int)
-        chunkInd2 := data[1].(*big.Int)
-        csAddresses := data[2].([][32]byte)
-        key1, err1 := ioutil.ReadFile("encChunks/chunk" + fmt.Sprintf("%03d", chunkInd1) + "-" + filename + ".key")
-        key2, err2 := ioutil.ReadFile("encChunks/chunk" + fmt.Sprintf("%03d", chunkInd2) + "-" + filename + ".key")
+func revealChunks(myAccount string, songNum uint32, filename string, chData *FileData) func([]interface{}) error {
+	return func(data []interface{}) error {
+		chunkInd1 := data[0].(*big.Int)
+		chunkInd2 := data[1].(*big.Int)
+		csAddresses := data[2].([][32]byte)
+		key1, err1 := ioutil.ReadFile("encChunks/chunk" + fmt.Sprintf("%03d", chunkInd1) + "-" + filename + ".key")
+		key2, err2 := ioutil.ReadFile("encChunks/chunk" + fmt.Sprintf("%03d", chunkInd2) + "-" + filename + ".key")
 
-        if err1 != nil {
-            panic(err1)
-        }
+		if err1 != nil {
+			panic(err1)
+		}
 
-        if err2 != nil {
-            panic(err2)
-        }
+		if err2 != nil {
+			panic(err2)
+		}
 
-        var k1 [32]byte
-        var k2 [32]byte
+		var k1 [32]byte
+		var k2 [32]byte
 
-        copy(k1[:], key1)
-        copy(k2[:], key2)
+		copy(k1[:], key1)
+		copy(k2[:], key2)
 
-        c.Transact("revealChunks", myAccount, k1, k2, songNum)
+		c.Transact("revealChunks", myAccount, k1, k2, songNum)
 
-        sendChunks(bytesToHostname(csAddresses), chData)
-        return nil
-    }
+		sendChunks(bytesToHostname(csAddresses), chData)
+		return nil
+	}
 }
 
 func sendChunks(hostnames []string, chData *FileData) {
-    jsonStr, _ := json.Marshal(chData)
-    host := strings.Trim(hostnames[0], " \n\000")
-    fmt.Printf("sending to %s\n", host)
-    req, err := http.NewRequest("PUT", host, bytes.NewBuffer(jsonStr))
+	jsonStr, _ := json.Marshal(chData)
+	host := strings.Trim(hostnames[0], " \n\000")
+	fmt.Printf("sending to %s\n", host)
+	req, err := http.NewRequest("PUT", host, bytes.NewBuffer(jsonStr))
 
-    client := &http.Client{}
-    resp, err := client.Do(req)
+	client := &http.Client{}
+	resp, err := client.Do(req)
 
-    if err != nil {
-        panic(err)
-    }
+	if err != nil {
+		panic(err)
+	}
 
-    defer resp.Body.Close()
+	defer resp.Body.Close()
 
-    //body, _ := ioutil.ReadAll(resp.Body)
+	//body, _ := ioutil.ReadAll(resp.Body)
 }
 
 func getChunk(hostnames []string, chunkHash [32]byte) []byte {
-    host := strings.Trim(hostnames[0], " \n\000")
-    url := host + "/?hash=" + hex.EncodeToString(chunkHash[:])
+	host := strings.Trim(hostnames[0], " \n\000")
+	url := host + "/?hash=" + hex.EncodeToString(chunkHash[:])
 
-    req, err := http.NewRequest("GET", url, bytes.NewBuffer([]byte{}))
+	req, err := http.NewRequest("GET", url, bytes.NewBuffer([]byte{}))
 
-    client := &http.Client{}
-    resp, err := client.Do(req)
+	client := &http.Client{}
+	resp, err := client.Do(req)
 
-    if err != nil {
-        panic(err)
-    }
+	if err != nil {
+		panic(err)
+	}
 
-    defer resp.Body.Close()
+	defer resp.Body.Close()
 
-    body, _ := ioutil.ReadAll(resp.Body)
-    return body
+	body, _ := ioutil.ReadAll(resp.Body)
+	return body
 }
 
 func getChunks(hostnames []string, chunkHashes [][32]byte) [][]byte {
-    res := make([][]byte, 1)
+	res := make([][]byte, 1)
 
-    for _, v := range chunkHashes {
-        res = append(res, getChunk(hostnames, v))
-    }
+	for _, v := range chunkHashes {
+		res = append(res, getChunk(hostnames, v))
+	}
 
-    return res
+	return res
 }
 
-func preview(song uint32) {
-    val, _ := c.Call("getPreview", song)
-    chunk1Hash := val[0].([32]byte)
-    chunk2Hash := val[1].([32]byte)
-    chunk1Key := val[2].([32]byte)
-    chunk2Key := val[3].([32]byte)
-    csAddresses := val[4].([][32]byte)
+func preview(song uint32, outputFilePath string) {
+	val, _ := c.Call("getPreview", song)
+	chunk1Hash := val[0].([32]byte)
+	chunk2Hash := val[1].([32]byte)
+	chunk1Key := val[2].([32]byte)
+	chunk2Key := val[3].([32]byte)
+	csAddresses := val[4].([][32]byte)
 
-    fmt.Printf("%v %v %v %v\n", chunk1Hash, chunk2Hash, chunk1Key, chunk2Key)
-    chunk1 := getChunk(bytesToHostname(csAddresses), chunk1Hash)
-    chunk2 := getChunk(bytesToHostname(csAddresses), chunk2Hash)
+	fmt.Printf("%v %v %v %v\n", chunk1Hash, chunk2Hash, chunk1Key, chunk2Key)
+	chunk1 := getChunk(bytesToHostname(csAddresses), chunk1Hash)
+	//chunk2 := getChunk(bytesToHostname(csAddresses), chunk2Hash)
 
-    fmt.Printf("%v\n", chunk1)
-    fmt.Printf("%v\n", chunk2)
+	fmt.Printf("%v\n", chunk1)
+	//fmt.Printf("%v\n", chunk2)
 
-    // TODO: GREG: decrypt the chunks here
+	err, plaintext := Decrypt(chunk1Key[:], chunk1)
+
+	fmt.Println(err, len(plaintext))
+
+	ioutil.WriteFile(outputFilePath, plaintext, 0644)
 }
 
-func purchase(song uint32, myAccount string, value int64) {
-    c.TransactValue("purchaseSong", myAccount, value, song)
-    eventNum, _ := c.RegisterEventListener("ListingPurchased")
-    c.ListenOnce(eventNum, "ListingPurchased", handlePurchase(song))
+func purchase(song uint32, myAccount string, value int64, savePath string) {
+	c.TransactValue("purchaseSong", myAccount, value, song)
+	eventNum, _ := c.RegisterEventListener("ListingPurchased")
+	c.ListenOnce(eventNum, "ListingPurchased", handlePurchase(song, savePath))
 }
 
-func handlePurchase(songNum uint32) (func([]interface{}) error) {
-    return func (data []interface{}) error {
-        //sellerBytes := data[2].([32]byte)
-        //seller := string(sellerBytes[:])
-        hashes := data[3].([][32]byte)
-        cs := data[4].([][32]byte)
+func handlePurchase(songNum uint32, savePath string) func([]interface{}) error {
+	return func(data []interface{}) error {
+		//sellerBytes := data[2].([32]byte)
+		//seller := string(sellerBytes[:])
+		hashes := data[3].([][32]byte)
+		cs := data[4].([][32]byte)
 
-        //keys := getKeys(seller, hashes)
+		//keys := getKeys(seller, hashes)
 
-        chunks := getChunks(bytesToHostname(cs), hashes)
+		chunks := getChunks(bytesToHostname(cs), hashes)
 
-        fmt.Printf("%v\n", chunks)
+		fmt.Printf("%v\n", chunks)
 
-        return nil
-    }
+		/*
+			decChunkDir := "decChunks/"
+			_ = os.Mkdir(decChunkDir, os.ModePerm)
+			RemoveContents(decChunkDir)
+
+			for i, chunk := range chunks {
+				err, plaintext := Decrypt(chunk, keys[i][:])
+
+				fmt.Println(err, len(plaintext))
+
+				ioutil.WriteFile(decChunkDir+"_chunk"+i+".mp3", plaintext, 0644)
+			}
+
+			/* post-decryption unchunk example
+
+			err = unChunkFile(savePath, decChunkDir)
+
+			if err != nil {
+				panic(err)
+			}
+		*/
+
+		return nil
+	}
 }
 
 func getKeys(hostname string, hashes [][32]byte) [][32]byte {
-    return make([][32]byte, 1)
+	return make([][32]byte, 1)
 }
 
 func serveKeys() {
@@ -642,69 +673,70 @@ func serveKeys() {
 // call with
 // go run publish.go publish chop_suey.mp3 100 0x627306090abab3a6e1400e9345bc60c78a8bef57
 func main() {
-    var err error
+	var err error
 
 	fmt.Println("Loading contract...")
 	c, err = loadCatalogContract()
 
-    if err != nil {
+	if err != nil {
 		panic(err)
 	}
 
-    if len(os.Args) < 2 {
-        panic("Not enough args. Expected command type")
-    }
+	if len(os.Args) < 2 {
+		panic("Not enough args. Expected command type")
+	}
 
-    if os.Args[1] == "preview" {
-        if len(os.Args) < 3 {
-            panic("Missing song number")
-        }
+	if os.Args[1] == "preview" {
+		if len(os.Args) < 4 {
+			panic("Missing song number")
+		}
 
-        songNum, _ := strconv.Atoi(os.Args[2])
-        preview(uint32(songNum))
-        return
-    }
+		songNum, _ := strconv.Atoi(os.Args[2])
+		preview(uint32(songNum), os.Args[3])
+		return
+	}
 
-    if os.Args[1] == "purchase" {
-        if len(os.Args) < 5 {
-            panic("Missing song number or account")
-        }
+	if os.Args[1] == "purchase" {
+		if len(os.Args) < 6 {
+			panic("Missing song number, account, or output file path")
+		}
 
-        songNum, _ := strconv.Atoi(os.Args[2])
-        val, _ := strconv.Atoi(os.Args[4])
-        myAccount := os.Args[3]
-        purchase(uint32(songNum), myAccount, int64(val))
-        return
-    }
+		songNum, _ := strconv.Atoi(os.Args[2])
+		val, _ := strconv.Atoi(os.Args[4])
+		myAccount := os.Args[3]
+		outPath := os.Args[4]
+		purchase(uint32(songNum), myAccount, int64(val), outPath)
+		return
+	}
 
-    if os.Args[1] != "publish" {
-        panic("Invalid command - should be one of publish, preview, or purchase")
-    }
+	if os.Args[1] != "publish" {
+		panic("Invalid command - should be one of publish, preview, or purchase")
+	}
 
-    //go serveKeys()
+	//go serveKeys()
 
-    reader := bufio.NewReader(os.Stdin)
+	reader := bufio.NewReader(os.Stdin)
 
-    for {
-        fmt.Print("# ")
+	for {
+		fmt.Print("# ")
 
-        text, _ := reader.ReadString('\n')
-        text = strings.Trim(text, " \n")
-        toks := strings.Split(text, " ")
+		text, _ := reader.ReadString('\n')
+		text = strings.Trim(text, " \n")
+		toks := strings.Split(text, " ")
 
-	    if len(toks) < 3 {
-		    panic("Not enough arguments")
-	    }
+		if len(toks) < 3 {
+			panic("Not enough arguments")
+		}
 
 		filename := toks[0]
 		cost, err := strconv.Atoi(toks[1])
 		if err != nil {
-		    panic(err)
+			panic(err)
 		}
 		myAddress := toks[2]
-        hashes, chunkData := encryptAndChunk(filename, uint32(cost), myAddress)
-        eventNum, _ := c.RegisterEventListener("SongListed")
-        c.ListenOnce(eventNum, "SongListed", publishChunks(hashes, myAddress, filename, chunkData))
+		hashes, chunkData := encryptAndChunk(filename, uint32(cost), myAddress)
+		eventNum, _ := c.RegisterEventListener("SongListed")
+		c.ListenOnce(eventNum, "SongListed", publishChunks(hashes, myAddress, filename, chunkData))
 
-    }
+	}
 }
