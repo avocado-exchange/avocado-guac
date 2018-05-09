@@ -51,12 +51,25 @@ function createWindow() {
   // Downloader
 
   electron.ipcMain.on("preview", (event, info) => {
-    execute('go run ../../utils/publish.go purchase ')
+    const filePath = "~/Downloads"+info.title+" Preview"+info.format;
+    execute('go run ../../utils/publish.go preview '+info.songId+ ' '+filePath);
+    window.webContents.send('download complete', filePath);
     /*
     download(BrowserWindow.getFocusedWindow(), info.url, info.properties)
       .then(dl => window.webContents.send("download complete", dl.getSavePath()));
     */
   });
+
+  electron.ipcMain.on("purchase", (event, info) => {
+    const filePath = "~/Downloads"+info.title+info.format;
+    execute('go run ../../utils/publish.go purchase ' +
+    info.songId + ' ' + info.account + ' ' + filePath);
+    window.webContents.send('download complete', filePath);
+    /*
+    download(BrowserWindow.getFocusedWindow(), info.url, info.properties)
+      .then(dl => window.webContents.send("download complete", dl.getSavePath()));
+    */
+
 }
 
 // This method will be called when Electron has finished

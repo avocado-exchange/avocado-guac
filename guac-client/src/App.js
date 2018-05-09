@@ -169,15 +169,26 @@ class App extends Component {
     )
     */
 
+    electron.ipcRenderer.send("purchase", {
+        songId: song.songId,
+        title: song.title,
+        format: '.mp3',
+        account: '0xf17f52151ebef6c7334fad080c5704d77216b732'
+    });
+
   }
 
   getPreview = (song) => {
-    /*
-    electron.ipcRenderer.send("download", {
+    /*electron.ipcRenderer.send("download", {
         url: "http://bekher.me/bekher-cv-ext.pdf",
-        //properties: [directory: "~/Downloads/"]
+        properties: {directory: "~/Downloads/"}
+    });*/
+
+    electron.ipcRenderer.send("preview", {
+        songId: song.songId,
+        title: song.title,
+        format: '.mp3'
     });
-    */
   }
 
   updateListings = () => {

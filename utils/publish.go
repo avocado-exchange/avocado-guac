@@ -501,9 +501,12 @@ func publishChunks(hashes [][32]byte, myAccount string, filename string, chData 
 		var host [32]byte
 		copy(host[:], "http://localhost:6548")
 
+		eventNum, err := c.RegisterEventListener("RandomnessReady")
+		if err != nil {
+			panic(err)
+		}
 		c.Transact("publishChunks", myAccount, songNum, hashes, host)
-		eventNum, _ := c.RegisterEventListener("RandomnessReady")
-		c.ListenOnce(eventNum, "RandomnessReady", revealChunks(myAccount, songNum, filename, chData))
+		go c.Listen(eventNum, "RandomnessReady", revealChunks(myAccount, songNum, filename, chData))
 
 		return nil
 	}
