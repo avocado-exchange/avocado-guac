@@ -546,7 +546,7 @@ func revealChunks(myAccount string, songNum uint32, filename string, chData *Fil
 func sendChunks(hostnames []string, chData *FileData) {
     jsonStr, _ := json.Marshal(chData)
     host := strings.Trim(hostnames[0], " \n\000")
-    fmt.Printf("sending to %v\n", []byte(host))
+    fmt.Printf("sending to %s\n", host)
     req, err := http.NewRequest("PUT", host, bytes.NewBuffer(jsonStr))
 
     client := &http.Client{}
@@ -580,6 +580,16 @@ func getChunk(hostnames []string, chunkHash [32]byte) []byte {
     return body
 }
 
+func getChunks(hostnames []string, chunkHashes [][32]byte) [][]byte {
+    res := make([][]byte, 1)
+
+    for _, v := range chunkHashes {
+        res = append(res, getChunk(hostnames, v))
+    }
+
+    return res
+}
+
 func preview(song uint32) {
     val, _ := c.Call("getPreview", song)
     chunk1Hash := val[0].([32]byte)
@@ -598,8 +608,31 @@ func preview(song uint32) {
     // TODO: GREG: decrypt the chunks here
 }
 
-func purchase(song uint32) {
-    
+func purchase(song uint32, myAccount string, value int64) {
+    c.TransactValue("purchaseSong", myAccount, value, song)
+    eventNum, _ := c.RegisterEventListener("ListingPurchased")
+    c.ListenOnce(eventNum, "ListingPurchased", handlePurchase(song))
+}
+
+func handlePurchase(songNum uint32) (func([]interface{}) error) {
+    return func (data []interface{}) error {
+        //sellerBytes := data[2].([32]byte)
+        //seller := string(sellerBytes[:])
+        hashes := data[3].([][32]byte)
+        cs := data[4].([][32]byte)
+
+        //keys := getKeys(seller, hashes)
+
+        chunks := getChunks(bytesToHostname(cs), hashes)
+
+        fmt.Printf("%v\n", chunks)
+
+        return nil
+    }
+}
+
+func getKeys(hostname string, hashes [][32]byte) [][32]byte {
+    return make([][32]byte, 1)
 }
 
 func serveKeys() {
@@ -633,12 +666,14 @@ func main() {
     }
 
     if os.Args[1] == "purchase" {
-        if len(os.Args) < 3 {
-            panic("Missing song number")
+        if len(os.Args) < 5 {
+            panic("Missing song number or account")
         }
 
-        songNum, _ := strconv.Atoi(os.Args[0])
-        purchase(uint32(songNum))
+        songNum, _ := strconv.Atoi(os.Args[2])
+        val, _ := strconv.Atoi(os.Args[4])
+        myAccount := os.Args[3]
+        purchase(uint32(songNum), myAccount, int64(val))
         return
     }
 
