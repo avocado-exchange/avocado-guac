@@ -6,10 +6,19 @@ const BrowserWindow = electron.BrowserWindow;
 
 const path = require('path');
 const url = require('url');
+const exec = require('child_process').exec;
+
+const {download} = require("electron-dl");
 
 // Keep a global reference of the window object, if you don't, the window will
 // be closed automatically when the JavaScript object is garbage collected.
 let mainWindow;
+
+function execute(command, callback) {
+    exec(command, (error, stdout, stderr) => {
+        callback(stdout);
+    });
+};
 
 function createWindow() {
   // Create the browser window.
@@ -37,7 +46,17 @@ function createWindow() {
     // in an array if your app supports multi windows, this is the time
     // when you should delete the corresponding element.
     mainWindow = null
-  })
+  });
+
+  // Downloader
+
+  electron.ipcMain.on("preview", (event, info) => {
+    execute('go run ../../utils/publish.go purchase ')
+    /*
+    download(BrowserWindow.getFocusedWindow(), info.url, info.properties)
+      .then(dl => window.webContents.send("download complete", dl.getSavePath()));
+    */
+  });
 }
 
 // This method will be called when Electron has finished
